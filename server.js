@@ -1,36 +1,40 @@
+const express = require('express');
 const jsonServer = require('json-server');
-const server = jsonServer.create();
 const fs = require('fs');
 const path = require('path');
+
+// Initialize Express app
+const app = express();
+
+// Initialize JSON Server
+const jsonServerApp = jsonServer.create();
+const router = jsonServer.router('db.json');
 const middlewares = jsonServer.defaults();
 
-// Initialize database file if it doesn't exist
-const dbPath = path.join(__dirname, 'db.json');
-if (!fs.existsSync(dbPath)) {
-  fs.writeFileSync(dbPath, JSON.stringify({ notifications: [] }, null, 2));
-  console.log('Created new empty database file');
-}
-
-// Create router after ensuring db exists
-const router = jsonServer.router(dbPath);
+// ========================
+// Database Initialization
+// ========================
+const initializeDB = () => {
+  const dbPath = path.join(__dirname, 'db.json');
+  if (!fs.existsSync(dbPath)) {
+    fs.writeFileSync(dbPath, JSON.stringify({ notifications: [] }, null, 2));
+    console.log('Created new empty database file');
+  }
+};
 
 // ========================
-// Server Configuration
+// Middleware Setup
 // ========================
-server.use(middlewares);
-server.use(jsonServer.bodyParser);
+app.use(express.json());
+jsonServerApp.use(middlewares);
+jsonServerApp.use(jsonServer.bodyParser);
 
 // ========================
 // Authentication Middleware
 // ========================
-server.use((req, res, next) => {
-  // Public routes (GET requests and specific endpoints)
-  const publicRoutes = [
-    '/notifications',
-    '/admin'
-  ];
-
-  if (req.method === 'GET' || publicRoutes.includes(req.path)) {
+jsonServerApp.use((req, res, next) => {
+  // Public routes
+  if (req.method === 'GET') {
     return next();
   }
 
@@ -46,7 +50,7 @@ server.use((req, res, next) => {
 });
 
 // ========================
-// Custom Response Handling
+// Custom Response Handler
 // ========================
 router.render = (req, res) => {
   let data = res.locals.data;
@@ -58,7 +62,6 @@ router.render = (req, res) => {
       data;
   }
 
-  // Standard response format
   res.jsonp({
     success: true,
     data: data,
@@ -71,7 +74,7 @@ router.render = (req, res) => {
 // ========================
 
 // Enhanced POST endpoint
-server.post('/notifications', (req, res, next) => {
+jsonServerApp.post('/notifications', (req, res, next) => {
   // Validation
   if (!req.body.title || !req.body.message) {
     return res.status(400).json({
@@ -84,14 +87,14 @@ server.post('/notifications', (req, res, next) => {
   // Default values
   req.body.createdAt = new Date().toISOString();
   req.body.updatedAt = req.body.createdAt;
-  req.body.isActive = req.body.isActive !== false; // Default true unless explicitly set to false
-  req.body.id = Date.now(); // Simple ID generation
+  req.body.isActive = req.body.isActive !== false;
+  req.body.id = Date.now();
 
   next();
 });
 
 // Custom PATCH endpoint
-server.patch('/notifications/:id', (req, res, next) => {
+jsonServerApp.patch('/notifications/:id', (req, res, next) => {
   req.body.updatedAt = new Date().toISOString();
   next();
 });
@@ -99,12 +102,18 @@ server.patch('/notifications/:id', (req, res, next) => {
 // ========================
 // Admin Interface
 // ========================
-server.use('/admin', express.static(path.join(__dirname, 'admin')));
+app.use('/admin', express.static(path.join(__dirname, 'admin')));
+
+// ========================
+// API Routes
+// ========================
+app.use('/api', jsonServerApp);
+jsonServerApp.use(router);
 
 // ========================
 // Error Handling
 // ========================
-server.use((err, req, res, next) => {
+app.use((err, req, res, next) => {
   console.error('Server Error:', err);
   res.status(500).json({
     success: false,
@@ -117,23 +126,20 @@ server.use((err, req, res, next) => {
 // Start Server
 // ========================
 const PORT = process.env.PORT || 3000;
-server.use(router);
-server.listen(PORT, () => {
+app.listen(PORT, () => {
+  initializeDB();
   console.log(`
   🚀 Notification API Server running on port ${PORT}
   
   ==== Key Endpoints ====
-  GET    /notifications      - List all notifications (newest first)
-  POST   /notifications      - Create new notification
-  GET    /notifications/:id  - Get single notification
-  PATCH  /notifications/:id  - Update notification
-  DELETE /notifications/:id  - Remove notification
+  GET    /api/notifications      - List all notifications (newest first)
+  POST   /api/notifications      - Create new notification
+  GET    /api/notifications/:id  - Get single notification
+  PATCH  /api/notifications/:id  - Update notification
+  DELETE /api/notifications/:id  - Remove notification
   
   ==== Admin Access ====
   Admin Interface: /admin
   Admin Key: "temple@123" (send in Authorization header)
-  
-  ==== Development ====
-  Database file: ${dbPath}
   `);
 });
